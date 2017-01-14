@@ -30,4 +30,8 @@
 
     <!-- Recents task locking button -->
     <dimen name="recents_task_view_header_lock_button_padding">44dp</dimen>
+
+    <!-- Burn-in protection -->
+    <dimen name="horizontal_max_swift">3.0dp</dimen>
+    <dimen name="vertical_max_swift">1.0dp</dimen>
 </resources>
