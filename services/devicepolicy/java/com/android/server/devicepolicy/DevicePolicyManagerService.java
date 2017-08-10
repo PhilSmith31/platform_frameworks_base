@@ -8708,6 +8708,13 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         }
     }
 
+    public boolean isRuntimePermission(String permissionName) throws NameNotFoundException {
+        final PackageManager packageManager = mContext.getPackageManager();
+        PermissionInfo permissionInfo = packageManager.getPermissionInfo(permissionName, 0);
+        return (permissionInfo.protectionLevel & PermissionInfo.PROTECTION_MASK_BASE)
+                == PermissionInfo.PROTECTION_DANGEROUS;
+    }
+
     @Override
     public boolean isProvisioningAllowed(String action) {
         if (!mHasFeature) {
