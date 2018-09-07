@@ -58,7 +58,6 @@ import android.net.INetworkManagementEventObserver;
 import android.net.InterfaceConfiguration;
 import android.net.IpPrefix;
 import android.net.LinkAddress;
-import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkPolicyManager;
 import android.net.NetworkStats;
@@ -86,7 +85,6 @@ import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.PhoneStateListener;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
 import android.util.SparseBooleanArray;
@@ -218,9 +216,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
     private INetd mNetdService;
 
-    private String mWifiInterfaceName, mDataInterfaceName;
-    private BroadcastReceiver mPendingDataRestrictReceiver;
-
     private IBatteryStats mBatteryStats;
 
     private final Thread mThread;
@@ -272,10 +267,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     /** Set of states for the child firewall chains. True if the chain is active. */
     @GuardedBy("mQuotaLock")
     final SparseBooleanArray mFirewallChainStates = new SparseBooleanArray();
-    @GuardedBy("mQuotaLock")
-    final SparseBooleanArray mWifiBlacklist = new SparseBooleanArray();
-    @GuardedBy("mQuotaLock")
-    final SparseBooleanArray mDataBlacklist = new SparseBooleanArray();
 
     @GuardedBy("mQuotaLock")
     private boolean mDataSaverMode;
@@ -306,7 +297,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     private final RemoteCallbackList<INetworkActivityListener> mNetworkActivityListeners =
             new RemoteCallbackList<INetworkActivityListener>();
     private boolean mNetworkActive;
-    private SparseBooleanArray mPendingRestrictOnData = new SparseBooleanArray();
 
     /**
      * Constructs a new NetworkManagementService instance
@@ -331,7 +321,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
                 FgThread.get().getLooper());
         mThread = new Thread(mConnector, NETD_TAG);
 
-        mWifiInterfaceName = SystemProperties.get("wifi.interface");
         mDaemonHandler = new Handler(FgThread.get().getLooper());
 
         // Add ourself to the Watchdog monitors.
@@ -372,19 +361,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             mContext.registerReceiver(mZeroBalanceReceiver, restrictFilter);
         }
         if (DBG) Slog.d(TAG, "ZeroBalance registering receiver");
-
-        // Note: processPendingDataRestrictRequests() will unregister
-        // mPendingDataRestrictReceiver once it has been able to determine
-        // the cellular network interface name.
-        mPendingDataRestrictReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                processPendingDataRestrictRequests();
-           }
-        };
-        final IntentFilter filter = new IntentFilter();
-        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-        mContext.registerReceiver(mPendingDataRestrictReceiver, filter);
     }
 
     private IBatteryStats getBatteryStats() {
@@ -531,7 +507,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             if (mLastPowerStateFromWifi != powerState) {
                 mLastPowerStateFromWifi = powerState;
                 try {
-                    getBatteryStats().noteWifiRadioPowerState(powerState, tsNanos, uid);
+                    getBatteryStats().noteWifiRadioPowerState(powerState, tsNanos);
                 } catch (RemoteException e) {
                 }
             }
@@ -1039,17 +1015,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     //
     // INetworkManagementService members
     //
-    @Override
-    public INetd getNetdService() throws RemoteException {
-        final CountDownLatch connectedSignal = mConnectedSignal;
-        if (connectedSignal != null) {
-            try {
-                connectedSignal.await();
-            } catch (InterruptedException ignored) {}
-        }
-
-        return mNetdService;
-    }
 
     @Override
     public String[] listInterfaces() {
@@ -1398,9 +1363,8 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             mConnector.execute("tether", "interface", "remove", iface);
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
-        } finally {
-            removeInterfaceFromLocalNetwork(iface);
         }
+        removeInterfaceFromLocalNetwork(iface);
     }
 
     @Override
@@ -1957,81 +1921,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
         }
     }
 
-    private void processPendingDataRestrictRequests() {
-        initDataInterface();
-        if (TextUtils.isEmpty(mDataInterfaceName)) {
-            return;
-        }
-        if (mPendingDataRestrictReceiver != null) {
-            mContext.unregisterReceiver(mPendingDataRestrictReceiver);
-            mPendingDataRestrictReceiver = null;
-        }
-        int count = mPendingRestrictOnData.size();
-        for (int i = 0; i < count; i++) {
-            restrictAppOnData(mPendingRestrictOnData.keyAt(i),
-                    mPendingRestrictOnData.valueAt(i));
-        }
-        mPendingRestrictOnData.clear();
-    }
-
-    @Override
-    public void restrictAppOnData(int uid, boolean restrict) {
-        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
-        // silently discard when control disabled
-        // TODO: eventually migrate to be always enabled
-        if (!mBandwidthControlEnabled) return;
-
-        initDataInterface();
-        if (TextUtils.isEmpty(mDataInterfaceName)) {
-            // We don't have an interface name since data is not active
-            // yet, so queue up the request for when it comes up alive
-            mPendingRestrictOnData.put(uid, restrict);
-            return;
-        }
-
-        synchronized (mQuotaLock) {
-            boolean oldValue = mDataBlacklist.get(uid, false);
-            if (oldValue == restrict) {
-                return;
-            }
-            mDataBlacklist.put(uid, restrict);
-        }
-
-        try {
-            final String action = restrict ? "add" : "remove";
-            mConnector.execute("bandwidth", action + "restrictappsondata",
-                    mDataInterfaceName, uid);
-        } catch (NativeDaemonConnectorException e) {
-            throw e.rethrowAsParcelableException();
-        }
-    }
-
-    @Override
-    public void restrictAppOnWifi(int uid, boolean restrict) {
-        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
-
-        // silently discard when control disabled
-        // TODO: eventually migrate to be always enabled
-        if (!mBandwidthControlEnabled) return;
-
-        synchronized (mQuotaLock) {
-            boolean oldValue = mWifiBlacklist.get(uid, false);
-            if (oldValue == restrict) {
-                return;
-            }
-            mWifiBlacklist.put(uid, restrict);
-        }
-
-
-        try {
-            final String action = restrict ? "add" : "remove";
-            mConnector.execute("bandwidth", action + "restrictappsonwlan",
-                    mWifiInterfaceName, uid);
-        } catch (NativeDaemonConnectorException e) {
-            throw e.rethrowAsParcelableException();
-        }
-    }
-
     @Override
     public void setUidMeteredNetworkBlacklist(int uid, boolean enable) {
         setUidOnMeteredNetworkList(mUidRejectOnMetered, uid, true, enable);
@@ -2068,8 +1957,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     @Override
     public void setAllowOnlyVpnForUids(boolean add, UidRange[] uidRanges)
             throws ServiceSpecificException {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.NETWORK_STACK, TAG);
-
         try {
             mNetdService.networkRejectNonSecureVpn(add, uidRanges);
         } catch (ServiceSpecificException e) {
@@ -3006,31 +2893,4 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             }
         }
     };
-	
-    @Override
-    public int removeRoutesFromLocalNetwork(List<RouteInfo> routes) {
-        int failures = 0;
-
-        for (RouteInfo route : routes) {
-            try {
-                modifyRoute("remove", "local", route);
-            } catch (IllegalStateException e) {
-                failures++;
-            }
-        }
-
-        return failures;
-    }
-
-    private void initDataInterface() {
-        if (!TextUtils.isEmpty(mDataInterfaceName)) {
-            return;
-        }
-        ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(
-                Context.CONNECTIVITY_SERVICE);
-        LinkProperties linkProperties = cm.getLinkProperties(ConnectivityManager.TYPE_MOBILE);
-        if (linkProperties != null) {
-            mDataInterfaceName = linkProperties.getInterfaceName();
-        }
-    }
 }
