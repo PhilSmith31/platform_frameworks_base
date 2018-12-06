@@ -48,7 +48,7 @@ public class BrightnessController implements ToggleSlider.Listener {
      * {@link android.provider.Settings.System#SCREEN_AUTO_BRIGHTNESS_ADJ} uses the range [-1, 1].
      * Using this factor, it is converted to [0, BRIGHTNESS_ADJ_RESOLUTION] for the SeekBar.
      */
-    private static final float BRIGHTNESS_ADJ_RESOLUTION = 4096;
+    private static final float BRIGHTNESS_ADJ_RESOLUTION = 8192;
 
     private static final int MSG_UPDATE_ICON = 0;
     private static final int MSG_UPDATE_SLIDER = 1;
