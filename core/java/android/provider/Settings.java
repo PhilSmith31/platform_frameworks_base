@@ -3789,6 +3789,18 @@ public final class Settings {
         public static final String HOME_WAKE_SCREEN = "home_wake_screen";
 
         /**
+         * Whether to to control the torch with long-pressing the power button
+         * @hide
+         */
+        public static final String KEY_TORCH_LONG_PRESS_POWER_GESTURE_ACTION = "key_torch_long_press_power_gesture_action";
+
+        /**
+         * When to auto turn off torch
+         * @hide
+         */
+        public static final String KEY_TORCH_LONG_PRESS_POWER_TIMEOUT_ACTION = "key_torch_long_press_power_timeout_action";
+
+        /**
          * Whether to wake the screen with the back key, the value is boolean.
          * @hide
          */
