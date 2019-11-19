@@ -121,6 +121,7 @@ LOCAL_SRC_FILES += \
 	core/java/android/bluetooth/IBluetoothPbapClient.aidl \
 	core/java/android/bluetooth/IBluetoothMap.aidl \
 	core/java/android/bluetooth/IBluetoothSap.aidl \
+	core/java/android/bluetooth/IBluetoothDun.aidl \
 	core/java/android/bluetooth/IBluetoothStateChangeCallback.aidl \
 	core/java/android/bluetooth/IBluetoothHeadsetClient.aidl \
 	core/java/android/bluetooth/IBluetoothGatt.aidl \
