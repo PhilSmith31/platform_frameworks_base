@@ -784,28 +784,6 @@ class ActivityStarter {
                 return ActivityManager.START_CANCELED;
             }
 
-            try {
-                //TODO: This needs to be a flushed out API in the future.
-                boolean isProtected = intent.getComponent() != null
-                        && AppGlobals.getPackageManager()
-                        .isComponentProtected(callingPackage, callingUid,
-                                intent.getComponent(), userId) &&
-                        (intent.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0;
-
-                if (isProtected) {
-                    Message msg = mService.mHandler.obtainMessage(
-                            ActivityManagerService.POST_COMPONENT_PROTECTED_MSG);
-                    //Store start flags, userid
-                    intent.setFlags(startFlags);
-                    intent.putExtra("com.android.settings.PROTECTED_APPS_USER_ID", userId);
-                    msg.obj = intent;
-                    mService.mHandler.sendMessage(msg);
-                    return ActivityManager.START_PROTECTED_APP;
-                }
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-
             final int realCallingPid = requestRealCallingPid != PID_NULL
                 ? requestRealCallingPid
                 : Binder.getCallingPid();
