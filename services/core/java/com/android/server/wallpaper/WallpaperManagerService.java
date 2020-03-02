@@ -1353,10 +1353,6 @@ public class WallpaperManagerService extends IWallpaperManager.Stub {
             return;
         }
 
-        // Make sure both width and height are not larger than max texture size.
-        width = Math.min(width, GLHelper.getMaxTextureSize());
-        height = Math.min(height, GLHelper.getMaxTextureSize());
-
         synchronized (mLock) {
             int userId = UserHandle.getCallingUserId();
             WallpaperData wallpaper = getWallpaperSafeLocked(userId, FLAG_SYSTEM);
